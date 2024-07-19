@@ -29,12 +29,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Build;
 import android.service.notification.StatusBarNotification;
-import androidx.core.app.NotificationCompat;
-import androidx.collection.ArraySet;
-import androidx.core.util.Pair;
-import android.util.Log;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.util.ArraySet;
+import android.support.v4.util.Pair;
 import android.util.SparseArray;
 
 import org.json.JSONException;
@@ -51,9 +49,8 @@ import static android.app.AlarmManager.RTC_WAKEUP;
 import static android.app.PendingIntent.FLAG_CANCEL_CURRENT;
 import static android.os.Build.VERSION.SDK_INT;
 import static android.os.Build.VERSION_CODES.M;
-import static androidx.core.app.NotificationCompat.PRIORITY_HIGH;
-import static androidx.core.app.NotificationCompat.PRIORITY_MAX;
-import static androidx.core.app.NotificationCompat.PRIORITY_MIN;
+import static android.support.v4.app.NotificationManagerCompat.IMPORTANCE_MAX;
+import static android.support.v4.app.NotificationManagerCompat.IMPORTANCE_MIN;
 
 /**
  * Wrapper class around OS notification class. Handles basic operations
@@ -118,36 +115,29 @@ public final class Notification {
     /**
      * Get application context.
      */
-    public Context getContext() {
+    public Context getContext () {
         return context;
     }
 
     /**
      * Get notification options.
      */
-    public Options getOptions() {
+    public Options getOptions () {
         return options;
     }
 
     /**
      * Get notification ID.
      */
-    public int getId() {
+    public int getId () {
         return options.getId();
     }
 
     /**
      * If it's a repeating notification.
      */
-    public boolean isRepeating() {
+    private boolean isRepeating () {
         return getOptions().getTrigger().has("every");
-    }
-
-    /**
-     * If the notifications priority is high or above.
-     */
-    public boolean isHighPrio() {
-        return getOptions().getPrio() >= PRIORITY_HIGH;
     }
 
     /**
@@ -173,17 +163,15 @@ public final class Notification {
      * @param request Set of notification options.
      * @param receiver Receiver to handle the trigger event.
      */
-    public void schedule(Request request, Class<?> receiver) {
+    void schedule(Request request, Class<?> receiver) {
         List<Pair<Date, Intent>> intents = new ArrayList<Pair<Date, Intent>>();
-        Set<String> ids = new ArraySet<String>();
-        AlarmManager mgr = getAlarmMgr();
+        Set<String> ids                  = new ArraySet<String>();
+        AlarmManager mgr                 = getAlarmMgr();
 
         cancelScheduledAlarms();
 
         do {
             Date date = request.getTriggerDate();
-
-            Log.d("local-notification", "Next trigger at: " + date);
 
             if (date == null)
                 continue;
@@ -203,7 +191,6 @@ public final class Notification {
             return;
         }
 
-        boolean hasAlarmPermission = Manager.getInstance(context).canScheduleExactAlarms();
         persist(ids);
 
         if (!options.isInfiniteTrigger()) {
@@ -219,51 +206,29 @@ public final class Notification {
             if (!date.after(new Date()) && trigger(intent, receiver))
                 continue;
 
-            PendingIntent pi = null;
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                    pi = PendingIntent.getBroadcast(
-                        context, 0, intent, PendingIntent.FLAG_IMMUTABLE | FLAG_CANCEL_CURRENT);
-            } else {
-                    pi = PendingIntent.getBroadcast(
-                        context, 0, intent, FLAG_CANCEL_CURRENT);
-            }
+            PendingIntent pi = PendingIntent.getBroadcast(
+                    context, 0, intent, FLAG_CANCEL_CURRENT);
 
             try {
-                switch (options.getPrio()) {
-                    case PRIORITY_MIN:
-                        if (hasAlarmPermission) {
-                            mgr.setExact(RTC, time, pi);
-                        } else {
-                            mgr.set(RTC, time, pi);
-                        }
+                switch (options.getPriority()) {
+                    case IMPORTANCE_MIN:
+                        mgr.setExact(RTC, time, pi);
                         break;
-                    case PRIORITY_MAX:
+                    case IMPORTANCE_MAX:
                         if (SDK_INT >= M) {
-                            if (hasAlarmPermission) {
-                                mgr.setExactAndAllowWhileIdle(RTC_WAKEUP, time, pi);
-                            } else {
-                                mgr.setAndAllowWhileIdle(RTC_WAKEUP, time, pi);
-                            }
+                            mgr.setExactAndAllowWhileIdle(RTC_WAKEUP, time, pi);
                         } else {
-                            if (hasAlarmPermission) {
-                                mgr.setExact(RTC, time, pi);
-                            } else {
-                                mgr.set(RTC, time, pi);
-                            }
+                            mgr.setExact(RTC, time, pi);
                         }
                         break;
                     default:
-                        if (hasAlarmPermission) {
-                            mgr.setExact(RTC_WAKEUP, time, pi);
-                        } else {
-                            mgr.set(RTC_WAKEUP, time, pi);
-                        }
+                        mgr.setExact(RTC_WAKEUP, time, pi);
                         break;
-                    }
-                } catch (Exception ignore) {
-                    // Samsung devices have a known bug where a 500 alarms limit
-                    // can crash the app
                 }
+            } catch (Exception ignore) {
+                // Samsung devices have a known bug where a 500 alarms limit
+                // can crash the app
+            }
         }
     }
 
@@ -328,14 +293,8 @@ public final class Notification {
         for (String action : actions) {
             Intent intent = new Intent(action);
 
-            PendingIntent pi = null;
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                pi = PendingIntent.getBroadcast(
-                    context, 0, intent, PendingIntent.FLAG_IMMUTABLE  );
-            } else {
-                pi = PendingIntent.getBroadcast(
+            PendingIntent pi = PendingIntent.getBroadcast(
                     context, 0, intent, 0);
-            }
 
             if (pi != null) {
                 getAlarmMgr().cancel(pi);
@@ -349,23 +308,12 @@ public final class Notification {
     public void show() {
         if (builder == null) return;
 
-        if (options.showChronometer()) {
+        if (options.isWithProgressBar()) {
             cacheBuilder();
         }
 
         grantPermissionToPlaySoundFromExternal();
-        getNotMgr().notify(getAppName(), getId(), builder.build());
-    }
-
-    /**
-     * Get the app name.
-     *
-     * @return String App name.
-     */
-    private String getAppName() {
-        CharSequence appName = context.getPackageManager().getApplicationLabel(context.getApplicationInfo());
-
-        return (String) appName;
+        getNotMgr().notify(getId(), builder.build());
     }
 
     /**
@@ -479,7 +427,7 @@ public final class Notification {
     /**
      * Caches the builder instance so it can be used later.
      */
-    private void cacheBuilder() {
+    private void cacheBuilder () {
 
         if (cache == null) {
             cache = new SparseArray<NotificationCompat.Builder>();

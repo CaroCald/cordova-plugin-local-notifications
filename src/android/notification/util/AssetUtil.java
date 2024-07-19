@@ -36,18 +36,11 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.UUID;
-
-import android.graphics.Color;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
-import android.graphics.Rect;
-import android.graphics.RectF;
-import android.graphics.Paint;
-import android.graphics.Canvas;
 
 /**
  * Util class to map unified asset URIs to native URIs. URIs like file:///
@@ -113,9 +106,8 @@ public final class AssetUtil {
      * @return URI pointing to the given path.
      */
     private Uri getUriFromPath(String path) {
-        String absPath = path.replaceFirst("file://", "")
-                .replaceFirst("\\?.*$", "");
-        File file      = new File(absPath);
+        String absPath = path.replaceFirst("file://", "");
+        File file = new File(absPath);
 
         if (!file.exists()) {
             Log.e("Asset", "File not found: " + file.getAbsolutePath());
@@ -133,8 +125,7 @@ public final class AssetUtil {
      * @return URI pointing to the given path.
      */
     private Uri getUriFromAsset(String path) {
-        String resPath  = path.replaceFirst("file:/", "www")
-                .replaceFirst("\\?.*$", "");
+        String resPath  = path.replaceFirst("file:/", "www");
         String fileName = resPath.substring(resPath.lastIndexOf('/') + 1);
         File file       = getTmpFile(fileName);
 
@@ -142,17 +133,23 @@ public final class AssetUtil {
             return Uri.EMPTY;
 
         try {
-            AssetManager assets  = context.getAssets();
-            InputStream in       = assets.open(resPath);
-            FileOutputStream out = new FileOutputStream(file);
-            copyFile(in, out);
+            AssetManager assets = context.getAssets();
+            FileOutputStream outStream = new FileOutputStream(file);
+            InputStream inputStream = assets.open(resPath);
+
+            copyFile(inputStream, outStream);
+
+            outStream.flush();
+            outStream.close();
+
+            return getUriFromFile(file);
+
         } catch (Exception e) {
             Log.e("Asset", "File not found: assets/" + resPath);
             e.printStackTrace();
-            return Uri.EMPTY;
         }
 
-        return getUriFromFile(file);
+        return Uri.EMPTY;
     }
 
     /**
@@ -206,11 +203,16 @@ public final class AssetUtil {
             connection.setConnectTimeout(5000);
             connection.connect();
 
-            InputStream in       = connection.getInputStream();
-            FileOutputStream out = new FileOutputStream(file);
+            InputStream input = connection.getInputStream();
+            FileOutputStream outStream = new FileOutputStream(file);
 
-            copyFile(in, out);
+            copyFile(input, outStream);
+
+            outStream.flush();
+            outStream.close();
+
             return getUriFromFile(file);
+
         } catch (MalformedURLException e) {
             Log.e("Asset", "Incorrect URL");
             e.printStackTrace();
@@ -231,18 +233,12 @@ public final class AssetUtil {
      * @param in  The input stream.
      * @param out The output stream.
      */
-    private void copyFile(InputStream in, FileOutputStream out) {
+    private void copyFile(InputStream in, OutputStream out) throws IOException {
         byte[] buffer = new byte[1024];
         int read;
 
-        try {
-            while ((read = in.read(buffer)) != -1) {
-                out.write(buffer, 0, read);
-            }
-            out.flush();
-            out.close();
-        } catch (Exception e) {
-            e.printStackTrace();
+        while ((read = in.read(buffer)) != -1) {
+            out.write(buffer, 0, read);
         }
     }
 
@@ -255,6 +251,10 @@ public final class AssetUtil {
      */
     public int getResId(String resPath) {
         int resId = getResId(context.getResources(), resPath);
+
+        if (resId == 0) {
+            resId = getResId(Resources.getSystem(), resPath);
+        }
 
         return resId;
     }
@@ -293,42 +293,6 @@ public final class AssetUtil {
     public Bitmap getIconFromUri(Uri uri) throws IOException {
         InputStream input = context.getContentResolver().openInputStream(uri);
         return BitmapFactory.decodeStream(input);
-    }
-
-    /**
-     * Convert a bitmap to a circular bitmap.
-     * This code has been extracted from the Phonegap Plugin Push plugin:
-     * https://github.com/phonegap/phonegap-plugin-push
-     *
-     * @param bitmap Bitmap to convert.
-     * @return Circular bitmap.
-     */
-    public static Bitmap getCircleBitmap(Bitmap bitmap) {
-        if (bitmap == null) {
-            return null;
-        }
-
-        final Bitmap output = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), Bitmap.Config.ARGB_8888);
-        final Canvas canvas = new Canvas(output);
-        final int color = Color.RED;
-        final Paint paint = new Paint();
-        final Rect rect = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
-        final RectF rectF = new RectF(rect);
-
-        paint.setAntiAlias(true);
-        canvas.drawARGB(0, 0, 0, 0);
-        paint.setColor(color);
-        float cx = bitmap.getWidth() / 2;
-        float cy = bitmap.getHeight() / 2;
-        float radius = cx < cy ? cx : cy;
-        canvas.drawCircle(cx, cy, radius, paint);
-
-        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
-        canvas.drawBitmap(bitmap, rect, rect, paint);
-
-        bitmap.recycle();
-
-        return output;
     }
 
     /**
@@ -397,7 +361,7 @@ public final class AssetUtil {
      */
     private Uri getUriFromFile(File file) {
         try {
-            String authority = context.getPackageName() + ".localnotifications.provider";
+            String authority = context.getPackageName() + ".provider";
             return AssetProvider.getUriForFile(context, authority, file);
         } catch (IllegalArgumentException e) {
             e.printStackTrace();

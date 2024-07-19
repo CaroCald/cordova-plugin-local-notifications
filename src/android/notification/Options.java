@@ -19,19 +19,15 @@
  * limitations under the License.
  */
 
-// codebeat:disable[TOO_MANY_FUNCTIONS]
-
 package de.appplant.cordova.plugin.notification;
 
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
-import androidx.core.app.NotificationCompat;
-import androidx.core.app.NotificationCompat.MessagingStyle.Message;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.app.NotificationCompat.MessagingStyle.Message;
 import android.support.v4.media.session.MediaSessionCompat;
-import androidx.core.app.Person;
-import androidx.core.graphics.drawable.IconCompat;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -45,13 +41,13 @@ import de.appplant.cordova.plugin.notification.action.Action;
 import de.appplant.cordova.plugin.notification.action.ActionGroup;
 import de.appplant.cordova.plugin.notification.util.AssetUtil;
 
-import static androidx.core.app.NotificationCompat.DEFAULT_LIGHTS;
-import static androidx.core.app.NotificationCompat.DEFAULT_SOUND;
-import static androidx.core.app.NotificationCompat.DEFAULT_VIBRATE;
-import static androidx.core.app.NotificationCompat.PRIORITY_MAX;
-import static androidx.core.app.NotificationCompat.PRIORITY_MIN;
-import static androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC;
-import static androidx.core.app.NotificationCompat.VISIBILITY_SECRET;
+import static android.support.v4.app.NotificationCompat.DEFAULT_LIGHTS;
+import static android.support.v4.app.NotificationCompat.DEFAULT_SOUND;
+import static android.support.v4.app.NotificationCompat.DEFAULT_VIBRATE;
+import static android.support.v4.app.NotificationCompat.PRIORITY_MAX;
+import static android.support.v4.app.NotificationCompat.PRIORITY_MIN;
+import static android.support.v4.app.NotificationCompat.VISIBILITY_PUBLIC;
+import static android.support.v4.app.NotificationCompat.VISIBILITY_SECRET;
 
 /**
  * Wrapper around the JSON object passed through JS which contains all
@@ -68,9 +64,6 @@ public final class Options {
 
     // Default icon path
     private static final String DEFAULT_ICON = "res://icon";
-
-    // Default icon type
-    private static final String DEFAULT_ICON_TYPE = "square";
 
     // The original JSON object
     private final JSONObject options;
@@ -98,7 +91,7 @@ public final class Options {
      * @param context The application context.
      * @param options The options dict map.
      */
-    public Options(Context context, JSONObject options) {
+    Options(Context context, JSONObject options) {
         this.context = context;
         this.options = options;
         this.assets  = AssetUtil.getInstance(context);
@@ -204,13 +197,6 @@ public final class Options {
      */
     public boolean shallWakeUp() {
         return options.optBoolean("wakeup", true);
-    }
-
-    /**
-     * Gets the value for the timeout flag.
-     */
-    long getTimeout() {
-        return options.optLong("timeoutAfter");
     }
 
     /**
@@ -379,13 +365,6 @@ public final class Options {
     }
 
     /**
-     * Type of the large icon.
-     */
-    String getLargeIconType() {
-        return options.optString("iconType", DEFAULT_ICON_TYPE);
-    }
-
-    /**
      * Small icon resource ID for the local notification.
      */
     int getSmallIcon() {
@@ -394,6 +373,10 @@ public final class Options {
 
         if (resId == 0) {
             resId = assets.getResId(DEFAULT_ICON);
+        }
+
+        if (resId == 0) {
+            resId = context.getApplicationInfo().icon;
         }
 
         if (resId == 0) {
@@ -489,7 +472,7 @@ public final class Options {
     /**
      * Gets the notifications priority.
      */
-    int getPrio() {
+    int getPriority() {
         int prio = options.optInt("priority");
 
         return Math.min(Math.max(prio, PRIORITY_MIN), PRIORITY_MAX);
@@ -498,19 +481,8 @@ public final class Options {
     /**
      * If the notification shall show the when date.
      */
-    boolean showClock() {
-        Object clock = options.opt("clock");
-
-        return (clock instanceof Boolean) ? (Boolean) clock : true;
-    }
-
-    /**
-     * If the notification shall show the when date.
-     */
-    boolean showChronometer() {
-        Object clock = options.opt("clock");
-
-        return (clock instanceof String) && clock.equals("chronometer");
+    boolean getShowWhen() {
+        return options.optBoolean("showWhen", true);
     }
 
     /**
@@ -606,26 +578,24 @@ public final class Options {
      * Gets the list of actions to display.
      */
     Action[] getActions() {
-        Object value      = options.opt("actions");
-        String groupId    = null;
-        JSONArray actions = null;
+        String groupId    = options.optString("actionGroupId", null);
+        JSONArray actions = options.optJSONArray("actions");
         ActionGroup group = null;
 
-        if (value instanceof String) {
-            groupId = (String) value;
-        } else
-        if (value instanceof JSONArray) {
-            actions = (JSONArray) value;
-        }
-
-        if (groupId != null) {
-            group = ActionGroup.lookup(groupId);
-        } else
         if (actions != null && actions.length() > 0) {
-            group = ActionGroup.parse(context, actions);
+            group = ActionGroup.parse(context, options);
         }
 
-        return (group != null) ? group.getActions() : null;
+        if (group == null && groupId != null) {
+            group = ActionGroup.lookup(groupId);
+        }
+
+        if (group != null) {
+            ActionGroup.register(group);
+            return group.getActions();
+        }
+
+        return null;
     }
 
     /**
@@ -651,39 +621,12 @@ public final class Options {
             JSONObject msg = list.optJSONObject(i);
             String message = msg.optString("message");
             long timestamp = msg.optLong("date", now);
-            String personName  = msg.optString("person", null);
-            String personIconString = msg.optString("personIcon", null);
+            String person  = msg.optString("person", null);
 
-            IconCompat personIcon = null;
-
-            if (personIconString != null) {
-                try {
-                    Uri personIconUri = assets.parse(personIconString);
-                    Bitmap personIconBitmap = assets.getIconFromUri(personIconUri);
-                    personIconBitmap = AssetUtil.getCircleBitmap(personIconBitmap);
-                    personIcon = IconCompat.createWithBitmap(personIconBitmap);
-                } catch (Exception e){
-                    e.printStackTrace();
-                }
-            }
-
-            Person sender = new Person.Builder()
-                .setName(personName)
-                .setIcon(personIcon)
-                .build();
-
-            messages[i] = new Message(message, timestamp, sender);
+            messages[i] = new Message(message, timestamp, person);
         }
 
         return messages;
-    }
-
-    /**
-     * The message to add to the title to display the number of messages if there is more than one.
-     * Only if using MessagingStytle.
-     */
-    String getTitleCount() {
-        return options.optString("titleCount", null);
     }
 
     /**
@@ -714,5 +657,3 @@ public final class Options {
     }
 
 }
-
-// codebeat:enable[TOO_MANY_FUNCTIONS]
